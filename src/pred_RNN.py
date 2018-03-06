@@ -14,12 +14,9 @@ from sklearn.metrics import mean_absolute_error
 from sklearn.metrics import r2_score
 
 import util
-import pred_arima
-
 
 ''' global variables '''
-n_buckets = 15  # Number of buckets.
-
+n_buckets = 2  # Number of buckets.
 
 '''LSTM model array for each square in the grid'''
 model_lstm = []
@@ -94,6 +91,7 @@ def pred_lstm(data,row,column):
     # split the data into training and test data, we use last year's data for testing
     train_size = int(len(data) -12)
     
+    # last year's data is for testing the trained model
     train, test = data[0:train_size,:], data[train_size:len(data),:]    
     
     # reshape the data into X=month and Y=month+1, so that we form a time series
@@ -129,54 +127,26 @@ def pred_lstm(data,row,column):
     testPredict = model_lstm[row][column].predict(testX, batch_size=batch_size)
     
     #invert the predictions back to normal scale
+    # since we have done step at line 87
     trainPredict = scaler.inverse_transform(trainPredict)
     trainY = scaler.inverse_transform([trainY])
     testPredict = scaler.inverse_transform(testPredict)
     testY = scaler.inverse_transform([testY])
     
-    
     return testY[0], testPredict[:,0]
-    
-    '''
-    
-    # calculate root mean squared error
-    trainScore = math.sqrt(mean_squared_error(trainY[0], trainPredict[:,0]))
-    print('Training error: %.2f RMSE' % (trainScore))
-    testScore = math.sqrt(mean_squared_error(testY[0], testPredict[:,0]))
-    print('Testing Error: %.2f RMSE' % (testScore))
-    
-    # shift train predictions for plotting
-    trainPredictPlot = numpy.empty_like(data)
-    trainPredictPlot[:, :] = numpy.nan
-    trainPredictPlot[look_back:len(trainPredict)+look_back, :] = trainPredict
-    
-    # shift test predictions for plotting
-    testPredictPlot = numpy.empty_like(data)
-    testPredictPlot[:, :] = numpy.nan
-    testPredictPlot[len(trainPredict)+(look_back*2)+1:len(data)-1, :] = testPredict
-    
-    # plot baseline and predictions
-    plt.plot(scaler.inverse_transform(data))
-    plt.plot(trainPredictPlot)
-    plt.plot(testPredictPlot)
-    plt.show()
-    '''
-    
-
         
 def main():
     test_lstm = []
-    test_arima = []
     predictions_lstm = []
-    predictions_arima = []
     
-    good_data = read_data('D:\Spring-2017\DBMS\Project\philadelphiacrimedata\crime_3.csv')
+    good_data = read_data('C:\\Users\\Kapil\\Desktop\\Microstrategy\\Crime Prediction CS 5614\\src\\crimedata.csv')
     
-    '''create the data into buckets'''
+    print("Create Number of Buckets")
     grid_buckets = util.createBuckets(good_data, n_buckets)
-   
+    
     min_time_feat = sys.maxsize
     max_time_feat = -sys.maxsize
+    
     for i in range(len(grid_buckets)):
         if grid_buckets[i][0] < min_time_feat:
             min_time_feat = grid_buckets[i][0]
@@ -186,55 +156,41 @@ def main():
     '''find min and max time_feat value'''
     max_time_feat = int(max_time_feat)
     min_time_feat = int(min_time_feat)
-   
+
+    print("Create Data Grid")
     data_grid = numpy.zeros((n_buckets,n_buckets,max_time_feat-min_time_feat+1))
     
     for row in range(len(grid_buckets)):
         data_grid[int(grid_buckets[row][1])][int(grid_buckets[row][2])][int(grid_buckets[row][0])-min_time_feat] = float(grid_buckets[row][3]) 
     
+    print("Time series for each of grid is created")
+
     '''for each square in the grid do below'''
     for i in range(n_buckets):
         for j in range(n_buckets):
             data_per_grid = data_grid[i][j]
             
+            # Continue, if no data is in the grid
             if numpy.count_nonzero(data_per_grid) == 0:
                 continue
             
-            tempTest, tempPredictions = pred_arima.model_arima(data_per_grid)       
-            test_arima = numpy.append(test_arima,tempTest)
-            predictions_arima = numpy.append(predictions_arima,tempPredictions)
-            
             data_per_grid = numpy.reshape(data_per_grid,(len(data_per_grid),1))
+            print("Train the LSTM Model")
             tempTest, tempPredictions = pred_lstm(data_per_grid,i,j)
+            
+            print("Store the test data and predicted data")
             test_lstm = numpy.append(test_lstm,tempTest)
             predictions_lstm = numpy.append(predictions_lstm,tempPredictions)
-            
-        
 
-    predictions_arima[predictions_arima < 0] = 0        
-    error = math.sqrt(mean_squared_error(test_arima, predictions_arima))
-    mea = mean_absolute_error(test_arima,predictions_arima)
-    r2 = r2_score(test_arima,predictions_arima)
-    print('ARIMA:RMSE: %.3f' % error)
-    print('ARIMA: Mean Absolute Error:')
-    print(mea)
-    print('R^2_score is:')
-    print(r2)
     
-    plt.plot(test_arima,color = 'blue',label='Actual')
-    plt.plot(predictions_arima, color='red',label='Predicted')
-    plt.legend(loc='upper right')
-    plt.xlabel("Month")
-    plt.ylabel("Count per Month")
-    plt.xticks([])
-    plt.title('Crime Prediction using ARIMA')
-    plt.show()
-    
-    
+    # Ignore the negative predictions
     predictions_lstm[predictions_lstm < 0] = 0
+    
+    # Calculate RMSE, MAE, R2 for predicted values
     error = math.sqrt(mean_squared_error(test_lstm, predictions_lstm))
     mea = mean_absolute_error(test_lstm,predictions_lstm)
     r2 = r2_score(test_lstm,predictions_lstm)
+    
     print('LSTM: RMSE: %.3f' % error)
     print('Mean Absolute Error:')
     print(mea)
